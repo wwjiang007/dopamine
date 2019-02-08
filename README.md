@@ -15,7 +15,9 @@ Our design principles are:
 * _Flexible development_: Make it easy for new users to try out research ideas.
 * _Compact and reliable_: Provide implementations for a few, battle-tested
                           algorithms.
-* _Reproducible_: Facilitate reproducibility in results.
+* _Reproducible_: Facilitate reproducibility in results. In particular, our
+                  setup follows the recommendations given by
+                  [Machado et al. (2018)][machado].
 
 In the spirit of these principles, this first version focuses on supporting the
 state-of-the-art, single-GPU *Rainbow* agent ([Hessel et al., 2018][rainbow])
@@ -33,6 +35,25 @@ For additional details, please see our
 [documentation](https://github.com/google/dopamine/tree/master/docs).
 
 This is not an official Google product.
+
+## What's new
+*  **30/01/2019:** Dopamine 2.0 now supports general discrete-domain gym
+   environments.
+*  **01/11/2018:** Download links for each individual checkpoint, to avoid
+   having to download all of the checkpoints.
+*  **29/10/2018:** Graph definitions now show up in Tensorboard.
+*  **16/10/2018:** Fixed a subtle bug in the IQN implementation and upated
+   the colab tools, the JSON files, and all the downloadable data.
+*  **18/09/2018:** Added support for double-DQN style updates for the
+   `ImplicitQuantileAgent`.
+   *  Can be enabled via the `double_dqn` constructor parameter.
+*  **18/09/2018:** Added support for reporting in-iteration losses directly from
+   the agent to Tensorboard.
+   *  Set the `run_experiment.create_agent.debug_mode = True` via the
+      configuration file or using the `gin_bindings` flag to enable it.
+   *  Control frequency of writes with the `summary_writing_frequency`
+      agent constructor parameter (defaults to `500`).
+*  **27/08/2018:** Dopamine launched!
 
 ## Instructions
 ### Install via source
@@ -60,7 +81,7 @@ compatible, there may be some additional steps needed during installation.
 First set up the virtual environment:
 
 ```
-sudo apt-get install virtualenv
+sudo apt-get update && sudo apt-get install virtualenv
 virtualenv --python=python2.7 dopamine-env
 source dopamine-env/bin/activate
 ```
@@ -68,11 +89,14 @@ source dopamine-env/bin/activate
 This will create a directory called `dopamine-env` in which your virtual
 environment lives. The last command activates the environment.
 
-Then, install the dependencies to Dopamine:
+Then, install the dependencies to Dopamine. If you don't have access to a
+GPU, then replace `tensorflow-gpu` with `tensorflow` in the line below
+(see [Tensorflow instructions](https://www.tensorflow.org/install/install_linux)
+for details).
 
 ```
-sudo apt-get install cmake zlib1g-dev
-pip install absl-py atari-py gin-config gym opencv-python tensorflow
+sudo apt-get update && sudo apt-get install cmake zlib1g-dev
+pip install absl-py atari-py gin-config gym opencv-python tensorflow-gpu
 ```
 
 During installation, you may safely ignore the following error message:
@@ -120,18 +144,16 @@ git clone https://github.com/google/dopamine.git
 You can test whether the installation was successful by running the following:
 
 ```
-cd dopamine
 export PYTHONPATH=${PYTHONPATH}:.
-python tests/atari_init_test.py
+python tests/dopamine/atari_init_test.py
 ```
 
 The entry point to the standard Atari 2600 experiment is
-[`dopamine/atari/train.py`](https://github.com/google/dopamine/blob/master/dopamine/atari/train.py).
+[`dopamine/discrete_domains/train.py`](https://github.com/google/dopamine/blob/master/dopamine/discrete_domains/train.py).
 To run the basic DQN agent,
 
 ```
-python -um dopamine.atari.train \
-  --agent_name=dqn \
+python -um dopamine.discrete_domains.train \
   --base_dir=/tmp/dopamine \
   --gin_files='dopamine/agents/dqn/configs/dqn.gin'
 ```
@@ -158,12 +180,33 @@ are generated at the end of each iteration.
 More generally, the whole of Dopamine is easily configured using the
 [gin configuration framework](https://github.com/google/gin-config).
 
+#### Non-Atari discrete environments
+
+We provide sample configuration files for training an agent on Cartpole and
+Acrobot. For example, to train C51 on Cartpole with default settings, run the
+following command:
+
+```
+python -um dopamine.discrete_domains.train \
+  --base_dir=/tmp/dopamine \
+  --gin_files='dopamine/agents/rainbow/configs/c51_cartpole.gin'
+```
+
+You can train Rainbow on Acrobot with the following command:
+
+```
+python -um dopamine.discrete_domains.train \
+  --base_dir=/tmp/dopamine \
+  --gin_files='dopamine/agents/rainbow/configs/rainbow_acrobot.gin'
+```
+
 
 ### Install as a library
 An easy, alternative way to install Dopamine is as a Python library:
 
 ```
-sudo apt-get install cmake  # Or brew install, see Mac OS X instructions above.
+# Alternatively brew install, see Mac OS X instructions above.
+sudo apt-get update && sudo apt-get install cmake
 pip install dopamine-rl
 pip install atari-py
 ```
@@ -183,6 +226,10 @@ python -um tests.agents.rainbow.rainbow_agent_test
 [Bellemare et al., *The Arcade Learning Environment: An evaluation platform for
 general agents*. Journal of Artificial Intelligence Research, 2013.][ale]
 
+[Machado et al., *Revisiting the Arcade Learning Environment: Evaluation
+Protocols and Open Problems for General Agents*, Journal of Artificial
+Intelligence Research, 2018.][machado]
+
 [Hessel et al., *Rainbow: Combining Improvements in Deep Reinforcement Learning*.
 Proceedings of the AAAI Conference on Artificial Intelligence, 2018.][rainbow]
 
@@ -197,18 +244,31 @@ Conference on Learning Representations, 2016.][prioritized_replay]
 
 ### Giving credit
 
-If you use Dopamine in your work, we ask that you cite this repository as a
-reference. The preferred format (authors in alphabetical order) is:
+If you use Dopamine in your work, we ask that you cite our
+[white paper][dopamine_paper]. Here is an example BibTeX entry:
 
-Marc G. Bellemare, Pablo Samuel Castro, Carles Gelada, Saurabh Kumar, Subhodeep Moitra.
-Dopamine, https://github.com/google/dopamine, 2018.
+```
+@article{castro18dopamine,
+  author    = {Pablo Samuel Castro and
+               Subhodeep Moitra and
+               Carles Gelada and
+               Saurabh Kumar and
+               Marc G. Bellemare},
+  title     = {Dopamine: {A} {R}esearch {F}ramework for {D}eep {R}einforcement {L}earning},
+  year      = {2018},
+  url       = {http://arxiv.org/abs/1812.06110},
+  archivePrefix = {arXiv}
+}
+```
 
 
 
-[ale]: https://arxiv.org/abs/1207.4708
+[machado]: https://jair.org/index.php/jair/article/view/11182
+[ale]: https://jair.org/index.php/jair/article/view/10819
 [dqn]: https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
-[a3c]: https://arxiv.org/abs/1602.01783
+[a3c]: http://proceedings.mlr.press/v48/mniha16.html
 [prioritized_replay]: https://arxiv.org/abs/1511.05952
-[c51]: https://arxiv.org/abs/1707.06887
-[rainbow]: https://arxiv.org/abs/1710.02298
+[c51]: http://proceedings.mlr.press/v70/bellemare17a.html
+[rainbow]: https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/download/17204/16680
 [iqn]: https://arxiv.org/abs/1806.06923
+[dopamine_paper]: https://arxiv.org/abs/1812.06110

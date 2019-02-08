@@ -1,3 +1,4 @@
+# coding=utf-8
 # Copyright 2018 The Dopamine Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,12 +59,12 @@ def load_baselines(base_dir, verbose=False):
   """
   experimental_data = {}
   for game in ALL_GAMES:
-    for agent in ['dqn', 'c51', 'rainbow', 'implicit_quantile']:
+    for agent in ['dqn', 'c51', 'rainbow', 'iqn']:
       game_data_file = os.path.join(base_dir, agent, '{}.pkl'.format(game))
       if not tf.gfile.Exists(game_data_file):
         if verbose:
           # pylint: disable=superfluous-parens
-          print('Unable to load data for agnet {} on game {}'.format(agent,
+          print('Unable to load data for agent {} on game {}'.format(agent,
                                                                      game))
           # pylint: enable=superfluous-parens
         continue
@@ -166,7 +167,7 @@ def summarize_data(data, summary_keys):
 
   Example:
     data = load_statistics(...)
-    get_iteration_summmary(data, ['train_episode_returns',
+    summarize_data(data, ['train_episode_returns',
         'eval_episode_returns'])
 
   Returns:
