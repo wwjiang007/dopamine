@@ -34,9 +34,90 @@ For completeness, we also provide an implementation of DQN
 For additional details, please see our
 [documentation](https://github.com/google/dopamine/tree/master/docs).
 
+We provide a set of [Colaboratory
+notebooks](https://github.com/google/dopamine/tree/master/dopamine/colab)
+which demonstrate how to use Dopamine.
+
+We provide a [website](https://google.github.io/dopamine/baselines/plots.html)
+which displays the learning curves for all the provided agents, on all the
+games.
+
 This is not an official Google product.
 
 ## What's new
+* **16/102020:** Learning curves for the [QR-DQN JAX
+  agent](https://github.com/google/dopamine/blob/master/dopamine/jax/agents/quantile/quantile_agent.py)
+  have been added to the [baseline
+  plots](https://google.github.io/dopamine/baselines/plots.html)!
+
+* **03/08/2020:** Dopamine now supports [JAX](https://github.com/google/jax)
+  agents! This includes an implementation of the Quantile Regression agent (QR-DQN)
+  which has been a common request. Find out more in our
+  [jax](https://github.com/google/dopamine/tree/master/dopamine/jax)
+  subdirectory, which includes trained agent checkpoints.
+
+* **27/07/2020:** Dopamine now runs on TensorFlow 2. However, Dopamine is still
+  written as TensorFlow 1.X code. This means your project may need to explicity
+  disable TensorFlow 2 behaviours with:
+
+  ```
+  import tensorflow.compat.v1 as tf
+  tf.disable_v2_behavior()
+  ```
+  if you are using custom entry-point for training your agent. The migration to
+  TensorFlow 2 also means that Dopamine no longer supports Python 2.
+
+*  **02/09/2019:** Dopamine has switched its network definitions to use
+  tf.keras.Model. The previous `tf.contrib.slim` based networks are removed.
+  If your agents inherit from dopamine agents you need to update your code.
+   * `._get_network_type()` and `._network_template()` functions are replaced
+      with `._create_network()` and `network_type` definitions are moved inside
+      the model definition.
+
+      ```
+      # The following two functions are replaced with `_create_network()`.
+      # def _get_network_type(self):
+      #   return collections.namedtuple('DQN_network', ['q_values'])
+      # def _network_template(self, state):
+      #   return self.network(self.num_actions, self._get_network_type(), state)
+
+      def _create_network(self, name):
+        """Builds the convolutional network used to compute the agent's Q-values.
+
+        Args:
+          name: str, this name is passed to the tf.keras.Model and used to create
+            variable scope under the hood by the tf.keras.Model.
+        Returns:
+          network: tf.keras.Model, the network instantiated by the Keras model.
+        """
+        # `self.network` is set to `atari_lib.NatureDQNNetwork`.
+        network = self.network(self.num_actions, name=name)
+        return network
+
+      def _build_networks(self):
+        # The following two lines are replaced.
+        # self.online_convnet = tf.make_template('Online', self._network_template)
+        # self.target_convnet = tf.make_template('Target', self._network_template)
+        self.online_convnet = self._create_network(name='Online')
+        self.target_convnet = self._create_network(name='Target')
+      ```
+   * If your code overwrites `._network_template()`, `._get_network_type()` or
+     `._build_networks()` make sure you update your code to fit with the new
+     API. If your code overwrites `._build_networks()` you need to replace
+     `tf.make_template('Online', self._network_template)` with
+     `self._create_network(name='Online')`.
+   * The variables of each network can be obtained from the networks as follows:
+     `vars = self.online_convnet.variables`.
+   * Baselines and older checkpoints can be loaded by adding the following line
+     to your gin file.
+
+     ```
+     atari_lib.maybe_transform_variable_names.legacy_checkpoint_load = True
+     ```
+*  **11/06/2019:** Visualization utilities added to generate videos and still
+   images of a trained agent interacting with its environment. See an example
+   colaboratory
+   [here](https://colab.research.google.com/github/google/dopamine/blob/master/dopamine/colab/agent_visualizer.ipynb).
 *  **30/01/2019:** Dopamine 2.0 now supports general discrete-domain gym
    environments.
 *  **01/11/2018:** Download links for each individual checkpoint, to avoid
@@ -58,95 +139,49 @@ This is not an official Google product.
 ## Instructions
 ### Install via source
 Installing from source allows you to modify the agents and experiments as
-you please, and is likely to be the pathway of choice for long-term use.
-These instructions assume that you've already set up your favourite package
-manager (e.g. `apt` on Ubuntu, `homebrew` on Mac OS X), and that a C++ compiler
-is available from the command-line (almost certainly the case if your favourite
-package manager works).
-
-The instructions below assume that you will be running Dopamine in a *virtual
+you please, and is likely to be the pathway of choice for long-term use. The
+instructions below assume that you will be running Dopamine in a *virtual
 environment*. A virtual environment lets you control which dependencies are
-installed for which program; however, this step is optional and you may choose
-to ignore it.
+installed for which program.
 
 Dopamine is a Tensorflow-based framework, and we recommend you also consult
 the [Tensorflow documentation](https://www.tensorflow.org/install)
-for additional details.
+for additional details. Finally, these instructions are for Python 3.6 and
+above.
 
-Finally, these instructions are for Python 2.7. While Dopamine is Python 3
-compatible, there may be some additional steps needed during installation.
-
-#### Ubuntu
-
-First set up the virtual environment:
-
-```
-sudo apt-get update && sudo apt-get install virtualenv
-virtualenv --python=python2.7 dopamine-env
-source dopamine-env/bin/activate
-```
-
-This will create a directory called `dopamine-env` in which your virtual
-environment lives. The last command activates the environment.
-
-Then, install the dependencies to Dopamine. If you don't have access to a
-GPU, then replace `tensorflow-gpu` with `tensorflow` in the line below
-(see [Tensorflow instructions](https://www.tensorflow.org/install/install_linux)
-for details).
-
-```
-sudo apt-get update && sudo apt-get install cmake zlib1g-dev
-pip install absl-py atari-py gin-config gym opencv-python tensorflow-gpu
-```
-
-During installation, you may safely ignore the following error message:
-*tensorflow 1.10.1 has requirement numpy<=1.14.5,>=1.13.3, but you'll have
-numpy 1.15.1 which is incompatible*.
-
-Finally, download the Dopamine source, e.g.
+First download the Dopamine source.
 
 ```
 git clone https://github.com/google/dopamine.git
 ```
 
-#### Mac OS X
-
-First set up the virtual environment:
+Then create a virtual environment and activate it.
 
 ```
-pip install virtualenv
-virtualenv --python=python2.7 dopamine-env
-source dopamine-env/bin/activate
+python3 -m venv ./dopamine-venv
+source dopamine-venv/bin/activate
 ```
 
-This will create a directory called `dopamine-env` in which your virtual
-environment lives. The last command activates the environment.
-
-Then, install the dependencies to Dopamine:
+Finally setup the environment and install Dopamine's dependencies
 
 ```
-brew install cmake zlib
-pip install absl-py atari-py gin-config gym opencv-python tensorflow
+pip install -U pip
+pip install -r dopamine/requirements.txt
 ```
 
-During installation, you may safely ignore the following error message:
-*tensorflow 1.10.1 has requirement numpy<=1.14.5,>=1.13.3, but you'll have
-numpy 1.15.1 which is incompatible*.
-
-Finally, download the Dopamine source, e.g.
-
-```
-git clone https://github.com/google/dopamine.git
-```
-
-#### Running tests
+### Running tests
 
 You can test whether the installation was successful by running the following:
 
 ```
-export PYTHONPATH=${PYTHONPATH}:.
-python tests/dopamine/atari_init_test.py
+cd dopamine
+export PYTHONPATH=$PYTHONPATH:$PWD
+python -m tests.dopamine.atari_init_test
 ```
+
+### Training agents
+
+#### Atari games
 
 The entry point to the standard Atari 2600 experiment is
 [`dopamine/discrete_domains/train.py`](https://github.com/google/dopamine/blob/master/dopamine/discrete_domains/train.py).
@@ -154,8 +189,8 @@ To run the basic DQN agent,
 
 ```
 python -um dopamine.discrete_domains.train \
-  --base_dir=/tmp/dopamine \
-  --gin_files='dopamine/agents/dqn/configs/dqn.gin'
+  --base_dir /tmp/dopamine_runs \
+  --gin_files dopamine/agents/dqn/configs/dqn.gin
 ```
 
 By default, this will kick off an experiment lasting 200 million frames.
@@ -188,16 +223,16 @@ following command:
 
 ```
 python -um dopamine.discrete_domains.train \
-  --base_dir=/tmp/dopamine \
-  --gin_files='dopamine/agents/rainbow/configs/c51_cartpole.gin'
+  --base_dir /tmp/dopamine_runs \
+  --gin_files dopamine/agents/rainbow/configs/c51_cartpole.gin
 ```
 
 You can train Rainbow on Acrobot with the following command:
 
 ```
 python -um dopamine.discrete_domains.train \
-  --base_dir=/tmp/dopamine \
-  --gin_files='dopamine/agents/rainbow/configs/rainbow_acrobot.gin'
+  --base_dir /tmp/dopamine_runs \
+  --gin_files dopamine/agents/rainbow/configs/rainbow_acrobot.gin
 ```
 
 
@@ -205,20 +240,7 @@ python -um dopamine.discrete_domains.train \
 An easy, alternative way to install Dopamine is as a Python library:
 
 ```
-# Alternatively brew install, see Mac OS X instructions above.
-sudo apt-get update && sudo apt-get install cmake
 pip install dopamine-rl
-pip install atari-py
-```
-
-Depending on your particular system configuration, you may also need to install
-zlib (see "Install via source" above).
-
-#### Running tests
-From the root directory, tests can be run with a command such as:
-
-```
-python -um tests.agents.rainbow.rainbow_agent_test
 ```
 
 ### References

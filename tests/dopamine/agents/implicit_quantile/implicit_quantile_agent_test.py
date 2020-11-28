@@ -23,15 +23,15 @@ from __future__ import print_function
 
 from dopamine.agents.dqn import dqn_agent
 from dopamine.agents.implicit_quantile import implicit_quantile_agent
+from dopamine.discrete_domains import atari_lib
 import numpy as np
 import tensorflow as tf
-
-slim = tf.contrib.slim
 
 
 class ImplicitQuantileAgentTest(tf.test.TestCase):
 
   def setUp(self):
+    super(ImplicitQuantileAgentTest, self).setUp()
     self._num_actions = 4
     self.observation_shape = dqn_agent.NATURE_DQN_OBSERVATION_SHAPE
     self.observation_dtype = dqn_agent.NATURE_DQN_DTYPE
@@ -40,35 +40,37 @@ class ImplicitQuantileAgentTest(tf.test.TestCase):
         (1,) + self.observation_shape + (self.stack_size,))
 
   def _create_test_agent(self, sess):
+    # This dummy network allows us to deterministically anticipate that the
+    # state-action-quantile outputs will be equal to sum of the
+    # corresponding quantile inputs.
+    # State/Quantile shapes will be k x 1, (N x batch_size) x 1,
+    # or (N' x batch_size) x 1.
 
-    class MockImplicitQuantileAgent(
-        implicit_quantile_agent.ImplicitQuantileAgent):
+    class MockImplicitQuantileNetwork(tf.keras.Model):
+      """Custom tf.keras.Model used in tests."""
 
-      def _network_template(self, state, num_quantiles):
-        # This dummy network allows us to deterministically anticipate that the
-        # state-action-quantile outputs will be equal to sum of the
-        # corresponding quantile inputs.
-        # State/Quantile shapes will be k x 1, (N x batch_size) x 1,
-        # or (N' x batch_size) x 1.
-        state_net = slim.flatten(state)
-        state_net = tf.ones(shape=state_net.shape)
-        state_net = tf.cast(state_net[:, 0:self.num_actions], tf.float32)
-        state_net_tiled = tf.tile(state_net, [num_quantiles, 1])
+      def __init__(self, num_actions, quantile_embedding_dim, **kwargs):
+        # This weights_initializer gives action 0 a higher weight, ensuring
+        # that it gets picked by the argmax.
+        super(MockImplicitQuantileNetwork, self).__init__(**kwargs)
+        self.num_actions = num_actions
+        self.layer = tf.keras.layers.Dense(
+            self.num_actions, kernel_initializer=tf.ones_initializer(),
+            bias_initializer=tf.zeros_initializer())
 
-        batch_size = state_net.get_shape().as_list()[0]
+      def call(self, state, num_quantiles):
+        batch_size = state.get_shape().as_list()[0]
+        inputs = tf.constant(
+            np.ones((batch_size*num_quantiles, self.num_actions)),
+            dtype=tf.float32)
         quantiles_shape = [num_quantiles * batch_size, 1]
         quantiles = tf.ones(quantiles_shape)
-        quantile_net = tf.tile(quantiles, [1, self.num_actions])
-        quantile_values = state_net_tiled * quantile_net
-        quantile_values = slim.fully_connected(
-            quantile_values, self.num_actions, activation_fn=None,
-            weights_initializer=tf.ones_initializer(),
-            biases_initializer=tf.zeros_initializer())
-        return self._get_network_type()(quantile_values=quantile_values,
-                                        quantiles=quantiles)
+        return atari_lib.ImplicitQuantileNetworkType(self.layer(inputs),
+                                                     quantiles)
 
-    agent = MockImplicitQuantileAgent(
+    agent = implicit_quantile_agent.ImplicitQuantileAgent(
         sess=sess,
+        network=MockImplicitQuantileNetwork,
         num_actions=self._num_actions,
         kappa=1.0,
         num_tau_samples=2,
@@ -77,14 +79,14 @@ class ImplicitQuantileAgentTest(tf.test.TestCase):
     # This ensures non-random action choices (since epsilon_eval = 0.0) and
     # skips the train_step.
     agent.eval_mode = True
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.compat.v1.global_variables_initializer())
     return agent
 
   def testCreateAgentWithDefaults(self):
     # Verifies that we can create and train an agent with the default values.
     with self.test_session(use_gpu=False) as sess:
       agent = implicit_quantile_agent.ImplicitQuantileAgent(sess, num_actions=4)
-      sess.run(tf.global_variables_initializer())
+      sess.run(tf.compat.v1.global_variables_initializer())
       observation = np.ones([84, 84, 1])
       agent.begin_episode(observation)
       agent.step(reward=1, observation=observation)
@@ -137,16 +139,15 @@ class ImplicitQuantileAgentTest(tf.test.TestCase):
                                     feed_dict)
 
       q_values_arr = np.ones([agent.num_actions]) * q_value
-      for i in xrange(agent.num_actions):
-        self.assertEqual(q_values[i], q_values_arr[i])
+      self.assertAllEqual(q_values, q_values_arr)
       self.assertEqual(q_argmax, 0)
 
       q_values_target = sess.run(agent._replay_net_target_q_values, feed_dict)
 
       batch_size = agent._replay.batch_size
 
-      for i in xrange(batch_size):
-        for j in xrange(agent.num_actions):
+      for i in range(batch_size):
+        for j in range(agent.num_actions):
           self.assertEqual(q_values_target[i][j], q_values[j])
 
   def test_replay_quantile_value_computation(self):
@@ -162,15 +163,16 @@ class ImplicitQuantileAgentTest(tf.test.TestCase):
           agent.num_tau_samples, batch_size, agent.num_actions])
       replay_target_quantile_vals = replay_target_quantile_vals.reshape([
           agent.num_tau_prime_samples, batch_size, agent.num_actions])
-      for i in xrange(agent.num_tau_samples):
-        for j in xrange(agent._replay.batch_size):
+      for i in range(agent.num_tau_samples):
+        for j in range(agent._replay.batch_size):
           self.assertEqual(replay_quantile_vals[i][j][0], agent.num_actions)
 
-      for i in xrange(agent.num_tau_prime_samples):
-        for j in xrange(agent._replay.batch_size):
+      for i in range(agent.num_tau_prime_samples):
+        for j in range(agent._replay.batch_size):
           self.assertEqual(replay_target_quantile_vals[i][j][0],
                            agent.num_actions)
 
 
 if __name__ == '__main__':
+  tf.compat.v1.disable_v2_behavior()
   tf.test.main()

@@ -61,14 +61,14 @@ def load_baselines(base_dir, verbose=False):
   for game in ALL_GAMES:
     for agent in ['dqn', 'c51', 'rainbow', 'iqn']:
       game_data_file = os.path.join(base_dir, agent, '{}.pkl'.format(game))
-      if not tf.gfile.Exists(game_data_file):
+      if not tf.io.gfile.exists(game_data_file):
         if verbose:
           # pylint: disable=superfluous-parens
           print('Unable to load data for agent {} on game {}'.format(agent,
                                                                      game))
           # pylint: enable=superfluous-parens
         continue
-      with tf.gfile.Open(game_data_file, 'rb') as f:
+      with tf.io.gfile.GFile(game_data_file, 'rb') as f:
         if sys.version_info.major >= 3:
           # pylint: disable=unexpected-keyword-arg
           single_agent_data = pickle.load(f, encoding='latin1')
@@ -76,6 +76,16 @@ def load_baselines(base_dir, verbose=False):
         else:
           single_agent_data = pickle.load(f)
         single_agent_data['agent'] = agent
+        # The dataframe rows are all read as 'objects', which causes a
+        # ValueError when merging below. We cast the numerics to float64s to
+        # avoid this.
+        for field_name in single_agent_data.keys():
+          try:
+            single_agent_data[field_name] = (
+                single_agent_data[field_name].astype(np.float64))
+          except ValueError:
+            # This will catch any non-numerics that cannot be cast to float64.
+            continue
         if game in experimental_data:
           experimental_data[game] = experimental_data[game].merge(
               single_agent_data, how='outer')
@@ -111,7 +121,7 @@ def load_statistics(log_path, iteration_number=None, verbose=True):
     print('Reading statistics from: {}'.format(log_file))
     # pylint: enable=superfluous-parens
 
-  with tf.gfile.Open(log_file, 'rb') as f:
+  with tf.io.gfile.GFile(log_file, 'rb') as f:
     return pickle.load(f), iteration_number
 
 
@@ -144,7 +154,7 @@ def get_latest_iteration(path):
     ValueError: if there is not available log data at the given path.
   """
   glob = os.path.join(path, '{}_[0-9]*'.format(FILE_PREFIX))
-  log_files = tf.gfile.Glob(glob)
+  log_files = tf.io.gfile.glob(glob)
 
   if not log_files:
     raise ValueError('No log data found at {}'.format(path))
@@ -267,7 +277,7 @@ def read_experiment(log_path,
         experiment_path, iteration_number=iteration_number, verbose=verbose)
 
     summary = summarize_data(raw_data, summary_keys)
-    for iteration in range(last_iteration):
+    for iteration in range(last_iteration + 1):
       # The row contains all the parameters, the iteration, and finally the
       # requested values.
       row_data = (list(parameter_tuple) + [iteration] +
@@ -275,6 +285,16 @@ def read_experiment(log_path,
       data_frame.loc[row_index] = row_data
 
       row_index += 1
+
+  # The dataframe rows are all read as 'objects', which causes a
+  # ValueError when merging below. We cast the numerics to float64s to
+  # avoid this.
+  for field_name in data_frame.keys():
+    try:
+      data_frame[field_name] = data_frame[field_name].astype(np.float64)
+    except ValueError:
+      # This will catch any non-numerics that cannot be cast to float64.
+      continue
 
   # Shed any unused rows.
   return data_frame.drop(np.arange(row_index, expected_num_rows))

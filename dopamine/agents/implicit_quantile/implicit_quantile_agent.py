@@ -22,8 +22,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 
 
 from dopamine.agents.rainbow import rainbow_agent
@@ -31,8 +29,6 @@ from dopamine.discrete_domains import atari_lib
 import tensorflow as tf
 
 import gin.tf
-
-slim = tf.contrib.slim
 
 
 @gin.configurable
@@ -42,7 +38,7 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
   def __init__(self,
                sess,
                num_actions,
-               network=atari_lib.implicit_quantile_network,
+               network=atari_lib.ImplicitQuantileNetwork,
                kappa=1.0,
                num_tau_samples=32,
                num_tau_prime_samples=32,
@@ -57,13 +53,13 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
     values are taken from Dabney et al. (2018).
 
     Args:
-      sess: `tf.Session` object for running associated ops.
+      sess: `tf.compat.v1.Session` object for running associated ops.
       num_actions: int, number of actions the agent can take at any state.
-      network: function expecting three parameters:
-        (num_actions, network_type, state). This function will return the
-        network_type object containing the tensors output by the network.
-        See dopamine.discrete_domains.atari_lib.nature_dqn_network as
-        an example.
+      network: tf.Keras.Model, expects three parameters:
+        (num_actions, quantile_embedding_dim, network_type). This class is used
+        to generate network instances that are used by the agent. Each
+        instantiation would have different set of variables. See
+        dopamine.discrete_domains.atari_lib.NatureDQNNetwork as an example.
       kappa: float, Huber loss cutoff.
       num_tau_samples: int, number of online quantile samples for loss
         estimation.
@@ -98,29 +94,18 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
         summary_writer=summary_writer,
         summary_writing_frequency=summary_writing_frequency)
 
-  def _get_network_type(self):
-    """Returns the type of the outputs of the implicit quantile network.
-
-    Returns:
-      _network_type object defining the outputs of the network.
-    """
-    return collections.namedtuple(
-        'iqn_network', ['quantile_values', 'quantiles'])
-
-  def _network_template(self, state, num_quantiles):
+  def _create_network(self, name):
     r"""Builds an Implicit Quantile ConvNet.
 
-    Takes state and quantile as inputs and outputs state-action quantile values.
-
     Args:
-      state: A `tf.placeholder` for the RL state.
-      num_quantiles: int, number of quantile inputs.
-
+      name: str, this name is passed to the tf.keras.Model and used to create
+        variable scope under the hood by the tf.keras.Model.
     Returns:
-      _network_type object containing quantile value outputs of the network.
+      network: tf.keras.Model, the network instantiated by the Keras model.
     """
-    return self.network(self.num_actions, self.quantile_embedding_dim,
-                        self._get_network_type(), state, num_quantiles)
+    network = self.network(self.num_actions, self.quantile_embedding_dim,
+                           name=name)
+    return network
 
   def _build_networks(self):
     """Builds the IQN computations needed for acting and training.
@@ -135,11 +120,8 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
       self._replay_next_target_net_outputs: The replayed next states' target
         quantile values.
     """
-    # Calling online_convnet will generate a new graph as defined in
-    # self._get_network_template using whatever input is passed, but will always
-    # share the same weights.
-    self.online_convnet = tf.make_template('Online', self._network_template)
-    self.target_convnet = tf.make_template('Target', self._network_template)
+    self.online_convnet = self._create_network(name='Online')
+    self.target_convnet = self._create_network(name='Target')
 
     # Compute the Q-values which are used for action selection in the current
     # state.
@@ -200,7 +182,7 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
     rewards = self._replay.rewards[:, None]
     rewards = tf.tile(rewards, [self.num_tau_prime_samples, 1])
 
-    is_terminal_multiplier = 1. - tf.to_float(self._replay.terminals)
+    is_terminal_multiplier = 1. - tf.cast(self._replay.terminals, tf.float32)
     # Incorporate terminal state to discount factor.
     # size of gamma_with_terminal: (num_tau_prime_samples x batch_size) x 1.
     gamma_with_terminal = self.cumulative_gamma * is_terminal_multiplier
@@ -285,11 +267,12 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
     # The huber loss (see Section 2.3 of the paper) is defined via two cases:
     # case_one: |bellman_errors| <= kappa
     # case_two: |bellman_errors| > kappa
-    huber_loss_case_one = tf.to_float(
-        tf.abs(bellman_errors) <= self.kappa) * 0.5 * bellman_errors ** 2
-    huber_loss_case_two = tf.to_float(
-        tf.abs(bellman_errors) > self.kappa) * self.kappa * (
-            tf.abs(bellman_errors) - 0.5 * self.kappa)
+    huber_loss_case_one = (
+        tf.cast(tf.abs(bellman_errors) <= self.kappa, tf.float32) *
+        0.5 * bellman_errors ** 2)
+    huber_loss_case_two = (
+        tf.cast(tf.abs(bellman_errors) > self.kappa, tf.float32) *
+        self.kappa * (tf.abs(bellman_errors) - 0.5 * self.kappa))
     huber_loss = huber_loss_case_one + huber_loss_case_two
 
     # Reshape replay_quantiles to batch_size x num_tau_samples x 1
@@ -301,11 +284,12 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
     # batch_size x num_tau_prime_samples x num_tau_samples x 1.
     # These quantiles will be used for computation of the quantile huber loss
     # below (see section 2.3 of the paper).
-    replay_quantiles = tf.to_float(tf.tile(
-        replay_quantiles[:, None, :, :], [1, self.num_tau_prime_samples, 1, 1]))
+    replay_quantiles = tf.cast(
+        tf.tile(replay_quantiles[:, None, :, :],
+                [1, self.num_tau_prime_samples, 1, 1]), tf.float32)
     # Shape: batch_size x num_tau_prime_samples x num_tau_samples x 1.
     quantile_huber_loss = (tf.abs(replay_quantiles - tf.stop_gradient(
-        tf.to_float(bellman_errors < 0))) * huber_loss) / self.kappa
+        tf.cast(bellman_errors < 0, tf.float32))) * huber_loss) / self.kappa
     # Sum over current quantile value (num_tau_samples) dimension,
     # average over target quantile value (num_tau_prime_samples) dimension.
     # Shape: batch_size x num_tau_prime_samples x 1.
@@ -317,6 +301,6 @@ class ImplicitQuantileAgent(rainbow_agent.RainbowAgent):
     update_priorities_op = tf.no_op()
     with tf.control_dependencies([update_priorities_op]):
       if self.summary_writer is not None:
-        with tf.variable_scope('Losses'):
-          tf.summary.scalar('QuantileLoss', tf.reduce_mean(loss))
+        with tf.compat.v1.variable_scope('Losses'):
+          tf.compat.v1.summary.scalar('QuantileLoss', tf.reduce_mean(loss))
       return self.optimizer.minimize(tf.reduce_mean(loss)), tf.reduce_mean(loss)

@@ -20,6 +20,16 @@ In this
 [colab](https://colab.research.google.com/github/google/dopamine/blob/master/dopamine/colab/load_statistics.ipynb)
 we illustrate how to load and visualize the logs data produced by Dopamine.
 
+## Visualizing trained agents
+In this
+[colab](https://colab.research.google.com/github/google/dopamine/blob/master/dopamine/colab/agent_visualizer.ipynb)
+we illustrate how to visualize a trained agent using the visualization utilities
+provided with Dopamine.
+
+In [this colab](https://colab.research.google.com/github/google/dopamine/blob/master/dopamine/colab/jax_agent_visualizer.ipynb)
+we can visualize trained agents' performance with the agents trained with the
+[JAX implementations](https://github.com/google/dopamine/tree/master/dopamine/jax).
+
 ## Visualizing with Tensorboard
 In this
 [colab](https://colab.research.google.com/github/google/dopamine/blob/master/dopamine/colab/tensorboard.ipynb)
